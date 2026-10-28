@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b0d14">
+<title>KeyFlow — MIDI Piano Visualizer</title>
+<style>
+:root{color-scheme:dark;--bg:#05070d;--panel:#0a0d16;--line:#1b2233;--muted:#8994ad;--text:#f4f5fb;--accent:#8b7cff;--cyan:#58caff}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+button,input{font:inherit}button{cursor:pointer;border:0;border-radius:12px;padding:11px 16px;background:#242a3b;color:var(--text);font-weight:650;transition:background .15s,transform .15s}button:hover{background:#333b53}button:active{transform:scale(.98)}button:focus-visible,input:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+.primary{background:linear-gradient(135deg,#8d7bff,#6856df);color:white;box-shadow:0 8px 28px #7565f533}.primary:hover{background:linear-gradient(135deg,#a092ff,#7866f3)}
+.iconbtn{width:42px;height:42px;padding:0;display:inline-grid;place-items:center;font-size:18px}
+#landing{min-height:100%;display:flex;flex-direction:column;padding:28px clamp(18px,5vw,72px);background:radial-gradient(ellipse at 50% 35%,#211d453d,transparent 55%),#f7f8fc;color:#171927}
+.brand{display:flex;align-items:center;gap:11px;font-weight:800;letter-spacing:-.04em;font-size:21px}.brandmark{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:#7564f6;color:white;font-size:20px}
+.landingtop{display:flex;justify-content:space-between;align-items:center}.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#777c91;font-weight:800}
+.hero{margin:auto;max-width:660px;width:100%;text-align:center;padding:65px 0 85px}.hero .symbol{width:76px;height:76px;border-radius:24px;margin:0 auto 25px;display:grid;place-items:center;background:#eae7ff;color:#6d5be7;font-size:36px}
+h1{font-size:clamp(36px,6vw,64px);letter-spacing:-.055em;line-height:1.02;margin:0 0 18px}.hero p{color:#666c80;line-height:1.65;font-size:16px;max-width:470px;margin:0 auto 28px}
+#selectBtn{font-size:15px;padding:15px 23px;border-radius:14px}#fileInput{display:none}.filehint{font-size:12px;color:#8b90a0;margin-top:14px}.landingfoot{display:flex;justify-content:space-between;gap:15px;color:#8b90a0;font-size:12px}
+#app{display:none;position:fixed;inset:0;background:var(--bg);overflow:hidden}#app.active{display:flex;flex-direction:column}
+#topbar{height:58px;flex:0 0 58px;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid #ffffff10;background:#0d1019;z-index:3}
+#topbar .brand{font-size:16px}#topbar .brandmark{width:30px;height:30px;border-radius:9px;font-size:16px}
+#songName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c7cce0;font-size:12px;margin-left:12px}
+.spacer{flex:1}.status{font-size:11px;color:var(--muted);white-space:nowrap}
+#stage{position:relative;flex:1;min-height:0;background:radial-gradient(ellipse at 50% 80%,#1c2040 0%,#0b0e18 57%,#080a10 100%);overflow:hidden}
+#roll{display:block;width:100%;height:100%}
+#emptyState{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#aeb5cc;pointer-events:none;padding:24px}
+#emptyState button{
+  pointer-events:auto;
+}
+#emptyState .emptyinner{max-width:390px}#emptyState .bigicon{font-size:38px;margin-bottom:12px;color:#8b7cff}#emptyState h2{margin:0 0 8px;color:#f4f5fb;font-size:22px}#emptyState p{margin:0;line-height:1.6;font-size:13px}
+#controls{z-index:3;display:flex;align-items:center;gap:12px;padding:10px 16px;background:#0d1019;border-top:1px solid #ffffff12;min-height:72px}
+#playBtn{width:44px;height:44px;border-radius:50%;padding:0;font-size:18px;background:#8170ff}
+#timeLabel{font-size:12px;color:#c4c9da;white-space:nowrap;font-variant-numeric:tabular-nums}
+#seek{width:100%;accent-color:#8b7cff;cursor:pointer}#seekWrap{flex:1;min-width:50px;display:flex;align-items:center}
+#transposeControl{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  padding:4px 7px;
+  border:1px solid #30364b;
+  border-radius:11px;
+  background:#151a28;
+  flex-shrink:0;
+}
+#transposeControl .transposeLabel{
+  color:var(--muted);
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.06em;
+}
+#transposeControl button{
+  width:28px;
+  height:30px;
+  padding:0;
+  border-radius:7px;
+  font-size:17px;
+  background:#252b3d;
+}
+#transposeValue{
+  min-width:45px;
+  text-align:center;
+  font-size:12px;
+  font-weight:750;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+@media(max-width:650px){
+  #transposeControl{gap:3px;padding:3px}
+  #transposeControl .transposeLabel{display:none}
+  #transposeControl button{width:25px;height:29px}
+  #transposeValue{min-width:38px;font-size:11px}
+}
+.smallselect{background:#1b2030;color:#e4e7f3;border:1px solid #30364b;border-radius:10px;padding:9px 8px;font-size:12px}
+#trackMenu{display:none;position:absolute;top:68px;right:16px;z-index:5;background:#171b29;border:1px solid #34394d;border-radius:14px;padding:14px;max-height:60vh;overflow:auto;min-width:220px;box-shadow:0 18px 50px #0008}
+#trackMenu.open{display:block}.trackrow{display:flex;gap:8px;align-items:center;padding:7px 0;font-size:12px;color:#dce0ef}.trackrow input{accent-color:#8b7cff}
+#toast{position:absolute;z-index:8;top:72px;left:50%;transform:translateX(-50%);padding:10px 14px;border-radius:12px;background:#252b3d;color:#f5f6ff;font-size:12px;box-shadow:0 8px 30px #0006;display:none;max-width:90%;text-align:center}
+#fullscreenHint{display:none;position:absolute;z-index:7;left:50%;top:50%;transform:translate(-50%,-50%);background:#151a2a;border:1px solid #393f59;border-radius:18px;padding:24px;text-align:center;box-shadow:0 20px 60px #0009;max-width:320px;width:calc(100% - 36px)}
+#fullscreenHint p{font-size:13px;color:#aeb5cc;line-height:1.5}
+#app.hide-ui #topbar,#app.hide-ui #controls{opacity:0;transition:opacity .3s;pointer-events:none}
+#app #topbar,#app #controls{transition:opacity .25s}
+#app.hide-ui:hover #topbar,#app.hide-ui:hover #controls{opacity:1;pointer-events:auto}
+@media(max-width:650px){#topbar{padding:0 9px;gap:7px}#songName{margin-left:2px;max-width:32vw}.status{display:none}#controls{gap:7px;padding:8px}#timeLabel{font-size:10px}.smallselect{padding:8px 5px}.landingfoot span:last-child{display:none}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<section id="landing">
+  <header class="landingtop">
+    <div class="brand"><span class="brandmark">♫</span><span>KeyFlow</span></div>
+    <span class="eyebrow">MIDI Piano Visualizer</span>
+  </header>
+  <main class="hero">
+    <div class="symbol">♫</div>
+    <h1>Bring your music<br>to life.</h1>
+    <p>Turn a MIDI file into a flowing piano performance. Choose a song, enter the stage, and get ready to record.</p>
+    <button id="selectBtn" class="primary">Select MIDI File</button>
+    <input id="fileInput" type="file" accept=".mid,.midi,audio/midi,audio/x-midi">
+    <div class="filehint">Supports .mid and .midi files · Processed locally in your browser</div>
+  </main>
+  <footer class="landingfoot"><span>KEYFLOW · MIDI VISUALIZER</span><span>Made for music, learning & recording</span></footer>
+</section>
+
+<section id="app" aria-label="Piano waterfall player">
+  <header id="topbar">
+    <div class="brand"><span class="brandmark">♫</span><span>KeyFlow</span></div>
+    <span id="songName">No MIDI loaded</span>
+    <div class="spacer"></div>
+    <span class="status" id="loadStatus">Ready</span>
+    <button id="tracksBtn" class="iconbtn" title="Show or hide tracks" aria-label="Tracks">≡</button>
+    <button id="hideBtn" class="iconbtn" title="Hide controls" aria-label="Hide controls">◌</button>
+    <button id="fullscreenBtn" class="iconbtn" title="Toggle fullscreen" aria-label="Toggle fullscreen">⛶</button>
+    <button id="newFileBtn" title="Choose another MIDI">Open MIDI</button>
+    <input id="fileInput2" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" hidden>
+  </header>
+  <main id="stage">
+    <canvas id="roll"></canvas>
+    <div id="emptyState"><div class="emptyinner"><div class="bigicon">♫</div><h2>Your piano stage</h2><p>Select a MIDI file to see its notes fall toward the keyboard. Press Space to play or pause. Use the controls below to seek or change speed.</p><br><button id="emptySelect" class="primary">Select MIDI File</button></div></div>
+    <div id="toast"></div>
+    <div id="fullscreenHint"><h3>Ready for fullscreen?</h3><p>Your browser did not allow automatic fullscreen. Enter fullscreen to maximize the waterfall for recording.</p><button id="hintFullscreen" class="primary">Enter Fullscreen</button> <button id="dismissHint">Not now</button></div>
+    <div id="trackMenu"><strong style="font-size:12px">Visible tracks</strong><div id="trackList"></div></div>
+  </main>
+  <footer id="controls">
+    <button id="playBtn" aria-label="Play or pause" title="Play / Pause (Space)">▶</button>
+    <button id="stopBtn" class="iconbtn" title="Stop and return to start" aria-label="Stop">■</button>
+    <span id="timeLabel">00:00 / 00:00</span>
+    <div id="seekWrap"><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Playback position"></div>
+    <div id="transposeControl" title="Change the pitch without modifying the MIDI file">
+      <span class="transposeLabel">KEY</span>
+      <button id="transposeDown" type="button" aria-label="Lower pitch by one semitone">−</button>
+      <span id="transposeValue">0</span>
+      <button id="transposeUp" type="button" aria-label="Raise pitch by one semitone">+</button>
+    </div>
+    <select id="speed" class="smallselect" aria-label="Playback speed" title="Playback speed"><option value=".5">0.5×</option><option value=".75">0.75×</option><option value="1" selected>1.0×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2.0×</option></select>
+    <button id="replayBtn" class="iconbtn" title="Restart" aria-label="Restart">↺</button>
+  </footer>
+</section>
+
+<!-- CDN libraries: an internet connection is required to load them. -->
+<script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/build/Tone.js"></script>
+<script type="module">
+import { Midi } from "https://esm.sh/@tonejs/midi@2.0.28";
+
+const $ = id => document.getElementById(id);
+const landing = $("landing"), app = $("app"), canvas = $("roll"), ctx = canvas.getContext("2d");
+const fileInput = $("fileInput"), fileInput2 = $("fileInput2");
+const stage = $("stage");
+let midiData = null, notes = [], tracks = [], duration = 0, currentTime = 0;
+let playing = false, startedAt = 0, startPosition = 0, raf = 0, lastScheduled = -1;
+let synth = null, audioReady = false, seeking = false, hideTimer = 0;
+let scheduledNotes = new Set();
+let pixelsPerSecond = 115, keyTop = 0, canvasW = 0, canvasH = 0, dpr = 1;
+const LOW = 21, HIGH = 108, RANGE = HIGH - LOW + 1;
+let transposeSemitones = 0;
+let displayLow = LOW;
+let displayHigh = HIGH;
+let displayWhitePitches = [];
+const palette = ["#8b7cff","#56c9ff","#ff7ab6","#69e0b1","#ffc66d","#a9a0ff","#6fe0ed","#ff9587"];
+const isBlack = n => [1,3,6,8,10].includes(n % 12);
+const WHITE_PITCHES = Array.from(
+  { length: RANGE },
+  (_, i) => LOW + i
+).filter(m => !isBlack(m));
+displayWhitePitches = WHITE_PITCHES;
+
+function pianoKeyCenter(midi, width) {
+  const whiteW = width / displayWhitePitches.length;
+  const index = displayWhitePitches.indexOf(midi);
+
+  // White keys: use their actual centers.
+  if (index !== -1) {
+    return (index + 0.5) * whiteW;
+  }
+
+  // Black keys: center them between their neighboring white keys.
+  const nextWhite = displayWhitePitches.find(m => m > midi);
+
+  if (nextWhite !== undefined) {
+    return displayWhitePitches.indexOf(nextWhite) * whiteW;
+  }
+
+  return width - whiteW * 0.5;
+}
+function pianoKeyWidth(midi, width) {
+  const whiteW = width / displayWhitePitches.length;
+  return whiteW * (isBlack(midi) ? 0.56 : 0.84);
+}
+const fmt = t => {t=Math.max(0,Math.floor(t||0));return String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0")};
+function toast(message){const el=$("toast");el.textContent=message;el.style.display="block";clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.style.display="none",3200)}
+function enterStage(){landing.style.display="none";app.classList.add("active");resizeCanvas();requestAnimationFrame(draw)}
+async function requestFullscreen(){
+  try { if(!document.fullscreenElement) await app.requestFullscreen(); $("fullscreenHint").style.display="none"; }
+  catch { $("fullscreenHint").style.display="block"; }
+}
+function toggleFullscreen(){if(document.fullscreenElement)document.exitFullscreen?.();else requestFullscreen()}
+function openPicker(input){
+  input.value = "";
+  input.click();
+}
+$("selectBtn").addEventListener("click",()=>openPicker(fileInput));
+$("emptySelect").addEventListener("click",()=>openPicker(fileInput2));
+$("newFileBtn").addEventListener("click",()=>openPicker(fileInput2));
+$("fullscreenBtn").addEventListener("click",toggleFullscreen);
+$("hintFullscreen").addEventListener("click",requestFullscreen);
+$("dismissHint").addEventListener("click",()=>$("fullscreenHint").style.display="none");
+fileInput.addEventListener("change",e=>loadFile(e.target.files?.[0]));
+fileInput2.addEventListener("change",e=>loadFile(e.target.files?.[0]));
+document.addEventListener("fullscreenchange",()=>{resizeCanvas();$("fullscreenBtn").textContent=document.fullscreenElement?"⤢":"⛶"});
+window.addEventListener("resize",resizeCanvas);
+
+async function loadFile(file){
+  if(!file)return;
+
+
+  transposeSemitones = 0;
+  $("transposeValue").textContent = "0";
+  $("transposeDown").disabled = false;
+  $("transposeUp").disabled = false;
+  enterStage();$("fullscreenHint").style.display="none";$("loadStatus").textContent="Loading MIDI…";
+  $("songName").textContent=file.name; $("emptyState").style.display="none";
+  pausePlayback(); currentTime=0;
+  try{
+    const buffer=await file.arrayBuffer();
+    midiData=new Midi(buffer);
+    tracks=midiData.tracks.map((track,i)=>({
+      id:i,name:track.name?.trim()||`Track ${i+1}`,
+      notes:track.notes.map(n=>({midi:n.midi,time:n.time,duration:Math.max(.06,n.duration),velocity:n.velocity||.8,track:i,name:n.name||midiToName(n.midi)})),
+      enabled:true, color:palette[i%palette.length]
+    })).filter(t=>t.notes.length);
+    notes=tracks.flatMap(t=>t.notes);
+    if(!notes.length)throw new Error("This MIDI file contains no readable note events.");
+    duration=Math.max(...notes.map(n=>n.time+n.duration),midiData.duration||0);
+    currentTime=0;startPosition=0;lastScheduled=-1;
+    $("loadStatus").textContent=`${notes.length.toLocaleString()} notes`;
+    buildTrackList();$("emptyState").style.display="none";
+    $("playBtn").textContent="▶";$("seek").value=0;updateTime();
+    resizeCanvas();draw();
+    try{await requestFullscreen()}catch{}
+    toast("MIDI loaded. Press Space or Play when you’re ready to record.");
+  }catch(err){
+    $("loadStatus").textContent="Could not load file";
+    $("emptyState").style.display="grid";
+    toast("Could not read this MIDI file: "+(err?.message||"unknown error"));
+  }
+}
+function midiToName(n){const names=["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"];return names[n%12]+(Math.floor(n/12)-1)}
+function buildTrackList(){
+  const list=$("trackList");list.innerHTML="";
+  tracks.forEach(t=>{
+    const label=document.createElement("label");label.className="trackrow";
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=t.enabled;
+    cb.addEventListener("change",()=>{t.enabled=cb.checked;notes=tracks.filter(x=>x.enabled).flatMap(x=>x.notes);draw()});
+    const swatch=document.createElement("span");swatch.style.cssText=`width:9px;height:9px;border-radius:3px;background:${t.color};display:inline-block;flex:none`;
+    const name=document.createElement("span");name.textContent=t.name;name.style.cssText="overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+    label.append(cb,swatch,name);list.append(label);
+  });
+}
+$("tracksBtn").addEventListener("click",()=>$("trackMenu").classList.toggle("open"));
+$("hideBtn").addEventListener("click",()=>{app.classList.toggle("hide-ui");if(app.classList.contains("hide-ui"))toast("Controls hidden. Move the mouse to show them again.")});
+app.addEventListener("mousemove",()=>{if(app.classList.contains("hide-ui")){app.classList.remove("hide-ui");clearTimeout(hideTimer);hideTimer=setTimeout(()=>app.classList.add("hide-ui"),2800)}});
+function resizeCanvas(){
+  const r=stage.getBoundingClientRect();if(!r.width||!r.height)return;
+  dpr=Math.min(window.devicePixelRatio||1,2);canvasW=r.width;canvasH=r.height;
+  canvas.width=Math.round(canvasW*dpr);canvas.height=Math.round(canvasH*dpr);
+  canvas.style.width=canvasW+"px";canvas.style.height=canvasH+"px";
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  keyTop=canvasH-70;
+  pixelsPerSecond=Math.max(55,Math.min(180,(keyTop-30)/4.5));
+  draw();
+}
+function getActiveNotes(){return notes}
+function updateDisplayRange() {
+  let minPitch = Infinity;
+  let maxPitch = -Infinity;
+
+  for (const n of notes) {
+    const pitch = n.midi + transposeSemitones;
+    minPitch = Math.min(minPitch, pitch);
+    maxPitch = Math.max(maxPitch, pitch);
+  }
+
+  // Preserve the original 88-key view unless transposed
+  // notes actually extend beyond it.
+  displayLow = minPitch < LOW
+    ? Math.floor(minPitch / 12) * 12
+    : LOW;
+
+  displayHigh = maxPitch > HIGH
+    ? Math.ceil((maxPitch + 1) / 12) * 12 - 1
+    : HIGH;
+
+  displayWhitePitches = Array.from(
+    { length: displayHigh - displayLow + 1 },
+    (_, i) => displayLow + i
+  ).filter(m => !isBlack(m));
+}
+function draw(){
+  if(!canvasW || !canvasH) return;
+
+  ctx.clearRect(0, 0, canvasW, canvasH);
+
+  const w = canvasW;
+  const h = canvasH;
+  const usableH = keyTop;
+
+  updateDisplayRange();
+
+  const laneWhiteW = w / displayWhitePitches.length;
+
+  for(let i = 0; i < displayWhitePitches.length; i++){
+    const m = displayWhitePitches[i];
+    const x = i * laneWhiteW;
+
+    const blackPitch = m + 1;
+
+    if(isBlack(blackPitch) && blackPitch <= displayHigh){
+      const bx = pianoKeyCenter(blackPitch, w);
+      const bw = pianoKeyWidth(blackPitch, w);
+
+      ctx.fillStyle = "#ffffff05";
+      ctx.fillRect(bx - bw / 2, 0, bw, usableH);
+    }
+
+    ctx.strokeStyle = "#ffffff0c";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, usableH);
+    ctx.stroke();
+
+    if(m % 12 === 0){
+      ctx.strokeStyle = "#ffffff20";
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, usableH);
+      ctx.stroke();
+    }
+  }
+
+  ctx.strokeStyle = "#ffffff0c";
+  ctx.beginPath();
+  ctx.moveTo(w, 0);
+  ctx.lineTo(w, usableH);
+  ctx.stroke();
+
+  // Horizontal timing guides.
+  const secondsVisible = usableH / pixelsPerSecond;
+  const firstBeat = Math.floor(currentTime * 2) / 2;
+
+  for(
+    let t = Math.max(0, firstBeat - 1);
+    t < currentTime + secondsVisible;
+    t += 0.5
+  ){
+    const y = keyTop - (t - currentTime) * pixelsPerSecond;
+
+    if(y < 0 || y > keyTop) continue;
+
+    ctx.strokeStyle =
+      Math.abs(t - Math.round(t)) < 0.01
+        ? "#ffffff18"
+        : "#ffffff0b";
+
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  const visible = getActiveNotes();
+
+  // Smoke is rendered continuously from the notes currently sounding.
+
+for (const n of visible) {
+  // Keep the existing transpose and piano-key alignment.
+  const shiftedMidi = n.midi + transposeSemitones;
+  const nw = pianoKeyWidth(shiftedMidi, w);
+  const x = pianoKeyCenter(shiftedMidi, w) - nw / 2;
+
+  const y =
+    keyTop -
+    (n.time - currentTime) * pixelsPerSecond -
+    n.duration * pixelsPerSecond;
+
+  const nh = Math.max(4, n.duration * pixelsPerSecond);
+  if (y > keyTop || y + nh < 0) continue;
+
+  // Solid LED-like note: one flat color, with glow only (no gradient or highlight).
+  const color = tracks[n.track]?.color || palette[0];
+  const radius = Math.min(5, nw * 0.22);
+
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 19;
+  roundRect(ctx, x + 1, y + 1, nw - 2, nh - 2, radius);
+  ctx.fill();
+
+  // A second, softer glow pass makes it feel like a lit diode without changing its color.
+  ctx.globalAlpha = 0.42;
+  ctx.shadowBlur = 28;
+  roundRect(ctx, x + 1, y + 1, nw - 2, nh - 2, radius);
+  ctx.fill();
+
+  if (nh > 24 && nw > 25) {
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "10px system-ui";
+    ctx.fillText(n.name, x + 5, y + 14, nw - 8);
+  }
+  ctx.restore();
+}
+
+  // Draw one continuous, soft smoke glow per sounding pitch BEFORE the keyboard.
+  // Overlapping notes on the same key are merged, so the smoke never stacks or flashes repeatedly.
+  if (playing) {
+    const soundingPitches = new Map();
+    for (const n of visible) {
+      if (currentTime >= n.time && currentTime < n.time + n.duration) {
+        const midi = n.midi + transposeSemitones;
+        if (midi >= displayLow && midi <= displayHigh) {
+          soundingPitches.set(midi, (soundingPitches.get(midi) || 0) + 1);
+        }
+      }
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    for (const [midi, overlapCount] of soundingPitches) {
+      const cx = pianoKeyCenter(midi, w);
+      const spread = Math.min(1.12, 1 + (overlapCount - 1) * 0.035);
+      const cloudH = 25 * spread;
+      const cloudW = Math.max(13, pianoKeyWidth(midi, w) * 1.35) * spread;
+      const cy = keyTop - 3;
+      const glow = ctx.createRadialGradient(cx, cy, 1, cx, cy - cloudH * 0.34, cloudW);
+      glow.addColorStop(0, "rgba(255,255,255,0.42)");
+      glow.addColorStop(0.22, "rgba(245,249,255,0.26)");
+      glow.addColorStop(0.52, "rgba(220,232,255,0.12)");
+      glow.addColorStop(1, "rgba(220,232,255,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(cx - cloudW, keyTop - cloudH * 1.7, cloudW * 2, cloudH * 1.9);
+
+      // A faint contact glow stays steady for the whole note instead of pulsing on every onset.
+      const contactRadius = Math.max(5, pianoKeyWidth(midi, w) * 0.38);
+      const contact = ctx.createRadialGradient(cx, keyTop - 1, 0, cx, keyTop - 1, contactRadius);
+      contact.addColorStop(0, "rgba(255,255,255,0.48)");
+      contact.addColorStop(0.45, "rgba(240,246,255,0.2)");
+      contact.addColorStop(1, "rgba(220,232,255,0)");
+      ctx.fillStyle = contact;
+      ctx.fillRect(cx - contactRadius, keyTop - 1 - contactRadius, contactRadius * 2, contactRadius * 2);
+    }
+    ctx.restore();
+  }
+
+  const kbH = h - keyTop;
+  const whiteNotes = [];
+  const blackNotes = [];
+
+  for(let m = displayLow; m <= displayHigh; m++){
+    const pc = m % 12;
+
+    if(isBlack(m)){
+      blackNotes.push({m, pc});
+    }else{
+      whiteNotes.push({m, pc});
+    }
+  }
+
+  const keyboardWhiteW = w / whiteNotes.length;
+  const blackW = keyboardWhiteW * 0.56;
+  const blackH = kbH * 0.62;
+
+  ctx.fillStyle = "#f4f5fa";
+  ctx.fillRect(0, keyTop, w, kbH);
+
+  for(let i = 0; i < whiteNotes.length; i++){
+    const {m, pc} = whiteNotes[i];
+    const x = i * keyboardWhiteW;
+
+    ctx.fillStyle = "#f7f8fc";
+    ctx.fillRect(x, keyTop, keyboardWhiteW, kbH);
+
+    ctx.strokeStyle = "#8f96a9";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(x, keyTop);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+
+    if(pc === 0 && keyboardWhiteW >= 13){
+      ctx.fillStyle = "#5e6478";
+      ctx.font = "10px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        "C" + (Math.floor(m / 12) - 1),
+        x + keyboardWhiteW / 2,
+        keyTop + kbH - 8
+      );
+    }
+  }
+
+  const activeNow = visible.filter(
+    n => n.time <= currentTime &&
+         n.time + n.duration >= currentTime
+  );
+
+  for(const n of activeNow){
+    const shiftedMidi = n.midi + transposeSemitones;
+
+    if(isBlack(shiftedMidi)) continue;
+
+    const index = whiteNotes.findIndex(k => k.m === shiftedMidi);
+    if(index < 0) continue;
+
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = tracks[n.track]?.color || palette[0];
+    ctx.fillRect(
+      index * keyboardWhiteW,
+      keyTop,
+      keyboardWhiteW,
+      kbH
+    );
+    ctx.globalAlpha = 1;
+  }
+
+  for(const {m} of blackNotes){
+    const index = whiteNotes.findIndex(k => k.m > m);
+    if(index < 0) continue;
+
+    const x = index * keyboardWhiteW - blackW / 2;
+    const activeNote = activeNow.find(
+      n => n.midi + transposeSemitones === m
+    );
+
+    ctx.fillStyle = activeNote
+      ? (tracks[activeNote.track]?.color || "#8b7cff")
+      : "#171a27";
+
+    roundRect(ctx, x, keyTop, blackW, blackH, 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#05060b";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+
+  if(playing){
+    currentTime = playbackPosition();
+
+    if(currentTime >= duration){
+      currentTime = duration;
+      pausePlayback();
+    }else{
+      scheduleNotes(
+        currentTime,
+        currentTime + 0.12 * Number($("speed").value || 1)
+      );
+    }
+    
+    updateTime();
+
+    if(!$("seek").matches(":active")){
+      $("seek").value = duration
+        ? currentTime / duration * 1000
+        : 0;
+    }
+  }
+}
+
+function roundRect(c,x,y,w,h,r){if(w<=0||h<=0)return;c.beginPath();c.roundRect(x,y,w,h,Math.min(r,w/2,h/2));}
+function playbackPosition(){return startPosition+(performance.now()-startedAt)/1000*Number($("speed").value||1)}
+function updateTime(){$("timeLabel").textContent=`${fmt(currentTime)} / ${fmt(duration)}`}
+
+async function ensureAudio(){
+  if(!window.Tone){
+    $("loadStatus").textContent = "Audio library failed to load";
+    throw new Error("Tone.js did not load. Check your internet connection and reload.");
+  }
+
+  await Tone.start();
+
+  if(!synth){
+    const urls = {
+      A0:"A0.mp3", C1:"C1.mp3", "D#1":"Ds1.mp3", "F#1":"Fs1.mp3",
+      A1:"A1.mp3", C2:"C2.mp3", "D#2":"Ds2.mp3", "F#2":"Fs2.mp3",
+      A2:"A2.mp3", C3:"C3.mp3", "D#3":"Ds3.mp3", "F#3":"Fs3.mp3",
+      A3:"A3.mp3", C4:"C4.mp3", "D#4":"Ds4.mp3", "F#4":"Fs4.mp3",
+      A4:"A4.mp3", C5:"C5.mp3", "D#5":"Ds5.mp3", "F#5":"Fs5.mp3",
+      A5:"A5.mp3", C6:"C6.mp3", "D#6":"Ds6.mp3", "F#6":"Fs6.mp3",
+      A6:"A6.mp3", C7:"C7.mp3", "D#7":"Ds7.mp3", "F#7":"Fs7.mp3",
+      A7:"A7.mp3", C8:"C8.mp3"
+    };
+
+    // Try the original sample host first, then a jsDelivr mirror.
+    // A timeout prevents a blocked sample request from freezing playback forever.
+    const bases = [
+      "https://tonejs.github.io/audio/salamander/",
+      "https://cdn.jsdelivr.net/gh/Tonejs/audio@master/salamander/"
+    ];
+    let pianoLoaded = false;
+    $("loadStatus").textContent = "Loading piano samples…";
+
+    for(const baseUrl of bases){
+      let candidate = null;
+      try{
+        candidate = new Tone.Sampler({urls, baseUrl, release:1}).toDestination();
+        candidate.volume.value = -8;
+        await Promise.race([
+          Tone.loaded(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Piano sample loading timed out")), 12000))
+        ]);
+        synth = candidate;
+        pianoLoaded = true;
+        $("loadStatus").textContent = "Real piano ready";
+        break;
+      }catch(sampleError){
+        if(candidate){try{candidate.dispose()}catch{}}
+      }
+    }
+
+    // Keep playback usable if both sample hosts are unreachable.
+    // The app will clearly label this as a backup sound, not a real piano.
+    if(!pianoLoaded){
+      synth = new Tone.PolySynth(Tone.Synth, {
+        oscillator:{type:"triangle"},
+        envelope:{attack:.008, decay:.12, sustain:.25, release:.65}
+      }).toDestination();
+      synth.volume.value = -8;
+      $("loadStatus").textContent = "Backup sound ready — piano samples unavailable";
+      toast("Piano samples could not load from either source. Playing backup sound; check your connection.");
+    }
+  }
+
+  audioReady = true;
+}
+
+function scheduleNotes(from,to){
+  if(!synth || !playing)return;
+
+  const speed = Number($("speed").value || 1);
+  const audioNow = Tone.now();
+
+  for(const n of notes){
+    if(scheduledNotes.has(n))continue;
+    if(n.time + n.duration <= from || n.time > to)continue;
+
+    scheduledNotes.add(n);
+
+    const when = audioNow + Math.max(0,(n.time-from)/speed);
+    const remainingDuration = Math.min(
+      n.duration,
+      n.time + n.duration - from
+    );
+    const noteDuration = Math.max(
+      .05,
+      remainingDuration / speed
+    );
+
+    try{
+      synth.triggerAttackRelease(
+        Tone.Frequency(
+          n.midi + transposeSemitones,
+          "midi"
+        ).toNote(),
+        noteDuration,
+        when,
+        n.velocity
+      );
+    }catch(error){
+      console.warn("Could not schedule MIDI note:",error);
+    }
+  }
+}
+
+function setTranspose(value) {
+  const next = Math.max(-24, Math.min(24, value));
+
+  if (next === transposeSemitones) return;
+
+  // Keep the exact current playback position.
+  if (playing) {
+    currentTime = playbackPosition();
+  }
+
+  transposeSemitones = next;
+
+  const label = transposeSemitones > 0
+    ? `+${transposeSemitones}`
+    : String(transposeSemitones);
+
+  $("transposeValue").textContent = label;
+  $("transposeDown").disabled = transposeSemitones <= -24;
+  $("transposeUp").disabled = transposeSemitones >= 24;
+
+  if (playing) {
+    // Stop scheduled notes in the old key and continue
+    // from the current position using the new pitch.
+    if (synth) {
+      try { synth.releaseAll(); } catch {}
+    }
+
+    scheduledNotes.clear();
+    startPosition = currentTime;
+    startedAt = performance.now();
+
+    scheduleNotes(
+      currentTime,
+      currentTime + 0.12 * Number($("speed").value || 1)
+    );
+  }
+
+  draw();
+}
+
+$("transposeDown").addEventListener(
+  "click",
+  () => setTranspose(transposeSemitones - 1)
+);
+
+$("transposeUp").addEventListener(
+  "click",
+  () => setTranspose(transposeSemitones + 1)
+);
+
+async function play(){
+  if(!midiData){
+    toast("Select a MIDI file first.");
+    return;
+  }
+
+  if(playing)return;
+
+  try{
+    await ensureAudio();
+
+    if(currentTime >= duration)currentTime = 0;
+
+    scheduledNotes.clear();
+    playing = true;
+    startPosition = currentTime;
+    startedAt = performance.now();
+
+    scheduleNotes(
+      currentTime,
+      currentTime + .12 * Number($("speed").value || 1)
+    );
+
+    $("playBtn").textContent = "Ⅱ";
+    $("loadStatus").textContent = "Playing";
+  }catch(error){
+    playing = false;
+    $("playBtn").textContent = "▶";
+    toast(error.message || "Audio could not start. Click Play again.");
+  }
+}
+
+function pausePlayback(){
+  if(playing){
+    currentTime = playbackPosition();
+    playing = false;
+  }
+
+  if(synth){
+    try{synth.releaseAll()}catch{}
+  }
+
+  scheduledNotes.clear();
+
+  $("playBtn").textContent = "▶";
+
+  if(midiData)$("loadStatus").textContent = "Paused";
+
+  updateTime();
+}
+$("playBtn").addEventListener("click",()=>playing?pausePlayback():play());
+$("stopBtn").addEventListener("click",()=>{pausePlayback();currentTime=0;startPosition=0;$("seek").value=0;updateTime();draw()});
+$("replayBtn").addEventListener("click",()=>{pausePlayback();currentTime=0;startPosition=0;$("seek").value=0;updateTime();play()});
+$("seek").addEventListener("input",e=>{seeking=true;pausePlayback();currentTime=duration*Number(e.target.value)/1000;startPosition=currentTime;updateTime();draw()});
+$("seek").addEventListener("change",()=>{seeking=false;lastScheduled=-1});
+$("speed").addEventListener("change",()=>{
+  if(playing){
+    currentTime = playbackPosition();
+    startPosition = currentTime;
+    startedAt = performance.now();
+
+    if(synth){
+      try{synth.releaseAll()}catch{}
+    }
+
+    scheduledNotes.clear();
+
+    scheduleNotes(
+      currentTime,
+      currentTime + .12 * Number($("speed").value || 1)
+    );
+  }
+});
+document.addEventListener("keydown",e=>{
+  if(e.code==="Space"&&!["INPUT","BUTTON","SELECT","TEXTAREA"].includes(document.activeElement?.tagName)){e.preventDefault();playing?pausePlayback():play()}
+  if(e.key==="f"||e.key==="F"){if(app.classList.contains("active"))toggleFullscreen()}
+  if(e.key==="Escape"){$("trackMenu").classList.remove("open")}
+});
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&playing)pausePlayback()});
+$("emptyState").style.display="grid";
+function animationLoop(){draw();raf=requestAnimationFrame(animationLoop)}
+animationLoop();
+</script>
+</body>
+</html>
