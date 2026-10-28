@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KeyFlow Tester — GM Sound Lab</title>
+<style>
+:root{color-scheme:dark;background:#080b13;color:#f3f5ff;font-family:system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;padding:28px 16px;background:radial-gradient(ellipse at top,#202044,#080b13 65%);min-height:100vh}
+main{max-width:760px;margin:auto}
+h1{letter-spacing:-.04em;margin-bottom:6px}
+p{color:#aab3ce;line-height:1.6}
+.panel{background:#111625;border:1px solid #293149;border-radius:16px;padding:20px;margin:18px 0}
+label{display:block;color:#bdc6de;font-size:13px;margin:14px 0 7px}
+select,input,button{font:inherit}
+select{width:100%;padding:12px;background:#1b2234;color:white;border:1px solid #3b4662;border-radius:10px}
+button{border:0;border-radius:10px;padding:12px 16px;background:#7868ef;color:white;font-weight:700;cursor:pointer}
+button.secondary{background:#29334b}
+button:disabled{opacity:.45;cursor:wait}
+.buttons{display:flex;gap:9px;flex-wrap:wrap;margin-top:15px}
+input[type=range]{width:100%;accent-color:#9587ff}
+#status{padding:12px;background:#0a0e18;border-radius:10px;color:#b9c7e8;font-size:13px;overflow-wrap:anywhere}
+#status.error{color:#ff9caa}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:520px){.grid{grid-template-columns:1fr}}
+small{color:#8792ad}
+</style>
+</head>
+<body>
+<main>
+  <h1>♫ KeyFlow Sound Lab</h1>
+  <p>Independent General MIDI sound test. This page does not modify the KeyFlow visualizer.</p>
+
+  <section class="panel">
+    <h2>SoundFont engine</h2>
+    <div id="status">Waiting to initialize FluidSynth…</div>
+    <div class="buttons">
+      <button id="loadBtn">Load SoundFont</button>
+      <button id="stopBtn" class="secondary" disabled>Stop all sound</button>
+    </div>
+    <p><small>SoundFont: ./TimGM6mb.sf2</small></p>
+  </section>
+
+  <section class="panel">
+    <h2>Instrument test</h2>
+    <label for="instrument">GM instrument (128 instruments)</label>
+    <select id="instrument"></select>
+    <div class="grid">
+      <div>
+        <label for="pitch">Test note</label>
+        <select id="pitch">
+          <option value="48">C3</option>
+          <option value="60" selected>C4</option>
+          <option value="64">E4</option>
+          <option value="67">G4</option>
+          <option value="72">C5</option>
+          <option value="84">C6</option>
+        </select>
+      </div>
+      <div>
+        <label for="velocity">Velocity: <span id="velLabel">100</span></label>
+        <input id="velocity" type="range" min="1" max="127" value="100">
+      </div>
+    </div>
+    <div class="buttons">
+      <button id="playNote" disabled>▶ Play note</button>
+      <button id="chord" class="secondary" disabled>Play chord</button>
+      <button id="release" class="secondary" disabled>Release notes</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>GM percussion test</h2>
+    <p>Uses MIDI channel 10 (channel index 9), the standard GM percussion channel.</p>
+    <div class="buttons">
+      <button class="drum" data-note="36" disabled>Bass drum</button>
+      <button class="drum" data-note="38" disabled>Snare</button>
+      <button class="drum" data-note="42" disabled>Closed hi-hat</button>
+      <button class="drum" data-note="46" disabled>Open hi-hat</button>
+      <button class="drum" data-note="49" disabled>Crash cymbal</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Master volume</h2>
+    <label for="volume">Volume: <span id="volLabel">80%</span></label>
+    <input id="volume" type="range" min="0" max="100" value="80">
+    <p><small>All audio is generated locally in your browser after the engine and SoundFont load.</small></p>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/externals/libfluidsynth-2.4.6.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/dist/js-synthesizer.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const status = $('status');
+  const loadBtn = $('loadBtn');
+  const stopBtn = $('stopBtn');
+  const playBtn = $('playNote');
+  const chordBtn = $('chord');
+  const releaseBtn = $('release');
+  const drumButtons = [...document.querySelectorAll('.drum')];
+
+  let audioContext = null;
+  let synth = null;
+  let soundFontId = null;
+  let ready = false;
+  let busy = false;
+
+  const names = [
+    'Acoustic Grand Piano','Bright Acoustic Piano','Electric Grand Piano',
+    'Honky-tonk Piano','Electric Piano 1','Electric Piano 2','Harpsichord','Clavinet',
+    'Celesta','Glockenspiel','Music Box','Vibraphone','Marimba','Xylophone',
+    'Tubular Bells','Dulcimer','Drawbar Organ','Percussive Organ','Rock Organ',
+    'Church Organ','Reed Organ','Accordion','Harmonica','Tango Accordion',
+    'Acoustic Guitar (nylon)','Acoustic Guitar (steel)','Electric Guitar (jazz)',
+    'Electric Guitar (clean)','Electric Guitar (muted)','Overdriven Guitar',
+    'Distortion Guitar','Guitar Harmonics','Acoustic Bass','Electric Bass (finger)',
+    'Electric Bass (pick)','Fretless Bass','Slap Bass 1','Slap Bass 2',
+    'Synth Bass 1','Synth Bass 2','Violin','Viola','Cello','Contrabass',
+    'Tremolo Strings','Pizzicato Strings','Orchestral Harp','Timpani',
+    'String Ensemble 1','String Ensemble 2','Synth Strings 1','Synth Strings 2',
+    'Choir Aahs','Voice Oohs','Synth Voice','Orchestra Hit','Trumpet','Trombone',
+    'Tuba','Muted Trumpet','French Horn','Brass Section','Synth Brass 1',
+    'Synth Brass 2','Soprano Sax','Alto Sax','Tenor Sax','Baritone Sax','Oboe',
+    'English Horn','Bassoon','Clarinet','Piccolo','Flute','Recorder','Pan Flute',
+    'Blown Bottle','Shakuhachi','Whistle','Ocarina','Lead 1 (square)',
+    'Lead 2 (sawtooth)','Lead 3 (calliope)','Lead 4 (chiff)','Lead 5 (charang)',
+    'Lead 6 (voice)','Lead 7 (fifths)','Lead 8 (bass + lead)','Pad 1 (new age)',
+    'Pad 2 (warm)','Pad 3 (polysynth)','Pad 4 (choir)','Pad 5 (bowed)',
+    'Pad 6 (metallic)','Pad 7 (halo)','Pad 8 (sweep)','FX 1 (rain)',
+    'FX 2 (soundtrack)','FX 3 (crystal)','FX 4 (atmosphere)','FX 5 (brightness)',
+    'FX 6 (goblins)','FX 7 (echoes)','FX 8 (sci-fi)','Sitar','Banjo','Shamisen',
+    'Koto','Kalimba','Bag pipe','Fiddle','Shanai','Tinkle Bell','Agogo',
+    'Steel Drums','Woodblock','Taiko Drum','Melodic Tom','Synth Drum',
+    'Reverse Cymbal','Guitar Fret Noise','Breath Noise','Seashore','Bird Tweet',
+    'Telephone Ring','Helicopter','Applause','Gunshot'
+  ];
+
+  names.forEach((name, i) => {
+    const option = document.createElement('option');
+    option.value = i;
+    option.textContent = String(i + 1).padStart(3, '0') + ' — ' + name;
+    $('instrument').append(option);
+  });
+
+  function setStatus(message, error = false) {
+    status.textContent = message;
+    status.classList.toggle('error', error);
+  }
+
+  function setEnabled(enabled) {
+    playBtn.disabled = !enabled;
+    chordBtn.disabled = !enabled;
+    releaseBtn.disabled = !enabled;
+    stopBtn.disabled = !enabled;
+    drumButtons.forEach(button => button.disabled = !enabled);
+  }
+
+  async function initialize() {
+    if (ready || busy) return;
+    busy = true;
+    loadBtn.disabled = true;
+    setStatus('Initializing audio engine…');
+
+    try {
+      if (!window.JSSynth || !window.JSSynth.Synthesizer) {
+        throw new Error('The js-synthesizer library did not load. Check your internet connection and reload.');
+      }
+
+      await JSSynth.waitForReady();
+
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      await audioContext.resume();
+
+      synth = new JSSynth.Synthesizer();
+      synth.init(audioContext.sampleRate);
+
+      const node = synth.createAudioNode(audioContext, 8192);
+      node.connect(audioContext.destination);
+
+      setStatus('Downloading TimGM6mb.sf2…');
+
+      const response = await fetch('./TimGM6mb.sf2');
+      if (!response.ok) {
+        throw new Error('SoundFont request failed (' + response.status + '). Check that TimGM6mb.sf2 is in the repository root and Pages has deployed it.');
+      }
+
+      const buffer = await response.arrayBuffer();
+      setStatus('Loading SoundFont (' + (buffer.byteLength / 1048576).toFixed(2) + ' MiB)…');
+
+      soundFontId = await synth.loadSFont(buffer);
+
+      ready = true;
+      setEnabled(true);
+      loadBtn.textContent = 'SoundFont loaded';
+      setStatus('Ready — TimGM6mb loaded. Choose an instrument and play a test note.');
+    } catch (error) {
+      console.error(error);
+      setStatus('Load failed: ' + (error?.message || error), true);
+      loadBtn.disabled = false;
+      loadBtn.textContent = 'Retry loading';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function ensureResumed() {
+    if (!ready) throw new Error('Load the SoundFont first.');
+    await audioContext.resume();
+  }
+
+  async function playOne(channel, pitch, velocity) {
+    await ensureResumed();
+    synth.noteOn(channel, pitch, velocity);
+    setTimeout(() => {
+      try { synth.noteOff(channel, pitch); } catch {}
+    }, 700);
+  }
+
+  loadBtn.addEventListener('click', initialize);
+
+  $('instrument').addEventListener('change', async () => {
+    if (!ready) return;
+    try {
+      await ensureResumed();
+      synth.midiProgramSelect(0, soundFontId, 0, Number($('instrument').value));
+      setStatus('Selected: ' + names[Number($('instrument').value)]);
+    } catch (error) {
+      setStatus('Instrument selection failed: ' + (error?.message || error), true);
+    }
+  });
+
+  playBtn.addEventListener('click', async () => {
+    try {
+      await ensureResumed();
+      synth.midiProgramSelect(0, soundFontId, 0, Number($('instrument').value));
+      await playOne(0, Number($('pitch').value), Number($('velocity').value));
+      setStatus('Playing ' + names[Number($('instrument').value)] + '…');
+    } catch (error) {
+      setStatus('Playback failed: ' + (error?.message || error), true);
+    }
+  });
+
+  chordBtn.addEventListener('click', async () => {
+    try {
+      await ensureResumed();
+      synth.midiProgramSelect(0, soundFontId, 0, Number($('instrument').value));
+      const root = Number($('pitch').value);
+      const velocity = Number($('velocity').value);
+      [root, root + 4, root + 7].forEach(note => synth.noteOn(0, note, velocity));
+      setTimeout(() => {
+        [root, root + 4, root + 7].forEach(note => {
+          try { synth.noteOff(0, note); } catch {}
+        });
+      }, 1000);
+      setStatus('Playing chord with ' + names[Number($('instrument').value)] + '…');
+    } catch (error) {
+      setStatus('Chord test failed: ' + (error?.message || error), true);
+    }
+  });
+
+  releaseBtn.addEventListener('click', () => {
+    if (!ready) return;
+    try {
+      synth.allSoundsOff(0);
+      synth.allSoundsOff(9);
+      setStatus('Stopped active notes.');
+    } catch (error) {
+      setStatus('Release failed: ' + (error?.message || error), true);
+    }
+  });
+
+  stopBtn.addEventListener('click', () => {
+    if (!ready) return;
+    try {
+      for (let channel = 0; channel < 16; channel++) synth.allSoundsOff(channel);
+      setStatus('All channels stopped.');
+    } catch (error) {
+      setStatus('Stop failed: ' + (error?.message || error), true);
+    }
+  });
+
+  drumButtons.forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await ensureResumed();
+        await playOne(9, Number(button.dataset.note), Number($('velocity').value));
+        setStatus('Playing percussion: ' + button.textContent);
+      } catch (error) {
+        setStatus('Drum test failed: ' + (error?.message || error), true);
+      }
+    });
+  });
+
+  $('velocity').addEventListener('input', () => {
+    $('velLabel').textContent = $('velocity').value;
+  });
+
+  $('volume').addEventListener('input', () => {
+    const value = Number($('volume').value) / 100;
+    $('volLabel').textContent = Math.round(value * 100) + '%';
+    if (audioContext) {
+      const gain = value;
+      // Master output is controlled by a simple gain stage.
+      if (!window._keyflowGain) {
+        window._keyflowGain = audioContext.createGain();
+        window._keyflowGain.gain.value = gain;
+      } else {
+        window._keyflowGain.gain.value = gain;
+      }
+    }
+  });
+
+  setEnabled(false);
+})();
+</script>
+</body>
+</html>
