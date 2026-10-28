@@ -214,9 +214,15 @@ small{color:#8792ad}
 
   async function playOne(channel, pitch, velocity) {
     await ensureResumed();
-    synth.noteOn(channel, pitch, velocity);
+  
+    synth.midiNoteOn(channel, pitch, velocity);
+  
     setTimeout(() => {
-      try { synth.noteOff(channel, pitch); } catch {}
+      try {
+        synth.midiNoteOff(channel, pitch);
+      } catch (error) {
+        console.warn('Note release failed:', error);
+      }
     }, 700);
   }
 
@@ -250,7 +256,9 @@ small{color:#8792ad}
       synth.midiProgramSelect(0, soundFontId, 0, Number($('instrument').value));
       const root = Number($('pitch').value);
       const velocity = Number($('velocity').value);
-      [root, root + 4, root + 7].forEach(note => synth.noteOn(0, note, velocity));
+      [root, root + 4, root + 7].forEach(
+        note => synth.midiNoteOn(0, note, velocity)
+      );
       setTimeout(() => {
         [root, root + 4, root + 7].forEach(note => {
           try { synth.noteOff(0, note); } catch {}
@@ -275,8 +283,12 @@ small{color:#8792ad}
 
   stopBtn.addEventListener('click', () => {
     if (!ready) return;
+  
     try {
-      for (let channel = 0; channel < 16; channel++) synth.allSoundsOff(channel);
+      for (let channel = 0; channel < 16; channel++) {
+        synth.midiAllSoundsOff(channel);
+      }
+  
       setStatus('All channels stopped.');
     } catch (error) {
       setStatus('Stop failed: ' + (error?.message || error), true);
