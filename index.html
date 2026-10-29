@@ -675,7 +675,7 @@ async function ensureGM() {
 
     await JSSynth.waitForReady();
 
-    const audioContext = Tone.getContext().rawContext;
+    const audioContext = new AudioContext();
     await audioContext.resume();
 
     gmSynth = new JSSynth.Synthesizer();
