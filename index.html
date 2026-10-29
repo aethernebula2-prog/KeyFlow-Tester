@@ -136,8 +136,9 @@ h1{font-size:clamp(36px,6vw,64px);letter-spacing:-.055em;line-height:1.02;margin
   </footer>
 </section>
 
-<!-- CDN libraries: an internet connection is required to load them. -->
 <script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/build/Tone.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/externals/libfluidsynth-2.4.6.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/dist/js-synthesizer.min.js"></script>
 <script type="module">
 import { Midi } from "https://esm.sh/@tonejs/midi@2.0.28";
 
@@ -148,6 +149,12 @@ const stage = $("stage");
 let midiData = null, notes = [], tracks = [], duration = 0, currentTime = 0;
 let playing = false, startedAt = 0, startPosition = 0, raf = 0, lastScheduled = -1;
 let synth = null, audioReady = false, seeking = false, hideTimer = 0;
+let gmSynth = null;
+let gmAudioNode = null;
+let gmSoundFontId = null;
+let gmReady = false;
+let gmLoading = null;
+let gmTimers = new Set();
 let scheduledNotes = new Set();
 let pixelsPerSecond = 115, keyTop = 0, canvasW = 0, canvasH = 0, dpr = 1;
 const LOW = 21, HIGH = 108, RANGE = HIGH - LOW + 1;
@@ -222,12 +229,33 @@ async function loadFile(file){
   try{
     const buffer=await file.arrayBuffer();
     midiData=new Midi(buffer);
-    tracks=midiData.tracks.map((track,i)=>({
-      id:i,name:track.name?.trim()||`Track ${i+1}`,
-      notes:track.notes.map(n=>({midi:n.midi,time:n.time,duration:Math.max(.06,n.duration),velocity:n.velocity||.8,track:i,name:n.name||midiToName(n.midi)})),
-      enabled:true, color:palette[i%palette.length]
-    })).filter(t=>t.notes.length);
-    notes=tracks.flatMap(t=>t.notes);
+    const GM_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15];
+
+    tracks = midiData.tracks.map((track, i) => ({
+      id: i,
+      name: track.name?.trim() || `Track ${i + 1}`,
+    
+      // MIDI instrument information
+      program: Number(track.instrument?.number ?? 0),
+      percussion: Boolean(track.instrument?.percussion),
+      gmChannel: track.instrument?.percussion
+        ? 9
+        : GM_CHANNELS[i % GM_CHANNELS.length],
+    
+      notes: track.notes.map(n => ({
+        midi: n.midi,
+        time: n.time,
+        duration: Math.max(0.06, n.duration),
+        velocity: n.velocity || 0.8,
+        track: i,
+        name: n.name || midiToName(n.midi)
+      })),
+    
+      enabled: true,
+      color: palette[i % palette.length]
+    })).filter(t => t.notes.length);
+    
+    notes = tracks.flatMap(t => t.notes);
     if(!notes.length)throw new Error("This MIDI file contains no readable note events.");
     duration=Math.max(...notes.map(n=>n.time+n.duration),midiData.duration||0);
     currentTime=0;startPosition=0;lastScheduled=-1;
@@ -636,41 +664,164 @@ async function ensureAudio(){
   audioReady = true;
 }
 
-function scheduleNotes(from,to){
-  if(!synth || !playing)return;
+async function ensureGM() {
+  if (gmReady) return;
+  if (gmLoading) return gmLoading;
 
-  const speed = Number($("speed").value || 1);
+  gmLoading = (async () => {
+    if (!window.JSSynth) {
+      throw new Error("SoundFont engine failed to load.");
+    }
+
+    await JSSynth.waitForReady();
+
+    const audioContext = Tone.getContext().rawContext;
+    await audioContext.resume();
+
+    gmSynth = new JSSynth.Synthesizer();
+    gmSynth.init(audioContext.sampleRate);
+
+    gmAudioNode = gmSynth.createAudioNode(audioContext, 8192);
+    gmAudioNode.connect(audioContext.destination);
+
+    const response = await fetch("./TimGM6mb.sf2");
+    if (!response.ok) {
+      throw new Error(
+        "Could not load TimGM6mb.sf2. Check that it is in the repository root."
+      );
+    }
+
+    const soundFontBuffer = await response.arrayBuffer();
+    gmSoundFontId = await gmSynth.loadSFont(soundFontBuffer);
+
+    if (gmSoundFontId == null) {
+      throw new Error("SoundFont loaded without a valid ID.");
+    }
+
+    gmReady = true;
+    toast("GM SoundFont ready.");
+  })();
+
+  try {
+    await gmLoading;
+  } catch (error) {
+    gmSynth = null;
+    gmAudioNode = null;
+    gmSoundFontId = null;
+    gmReady = false;
+    throw error;
+  } finally {
+    gmLoading = null;
+  }
+}
+
+function stopGMAudio() {
+  for (const timer of gmTimers) {
+    clearTimeout(timer);
+  }
+  gmTimers.clear();
+
+  if (gmSynth && gmReady) {
+    for (let channel = 0; channel < 16; channel++) {
+      try {
+        gmSynth.midiAllSoundsOff(channel);
+      } catch (error) {
+        // Ignore channels that cannot be stopped.
+      }
+    }
+  }
+}
+
+function scheduleNotes(from, to) {
+  if (!synth || !audioReady) return;
+
   const audioNow = Tone.now();
 
-  for(const n of notes){
-    if(scheduledNotes.has(n))continue;
-    if(n.time + n.duration <= from || n.time > to)continue;
+  for (const n of notes) {
+    if (n.time < from || n.time > to) continue;
 
-    scheduledNotes.add(n);
+    const key =
+      `${n.track}:${n.midi}:${n.time}:${n.duration}`;
 
-    const when = audioNow + Math.max(0,(n.time-from)/speed);
-    const remainingDuration = Math.min(
-      n.duration,
-      n.time + n.duration - from
+    if (scheduledNotes.has(key)) continue;
+
+    const track = tracks[n.track];
+    if (!track) continue;
+
+    scheduledNotes.add(key);
+
+    const pitch = Math.max(
+      0,
+      Math.min(127, n.midi + transposeSemitones)
     );
+
     const noteDuration = Math.max(
-      .05,
-      remainingDuration / speed
+      0.03,
+      n.duration / speed
     );
 
-    try{
-      synth.triggerAttackRelease(
-        Tone.Frequency(
-          n.midi + transposeSemitones,
-          "midi"
-        ).toNote(),
-        noteDuration,
-        when,
-        n.velocity
-      );
-    }catch(error){
-      console.warn("Could not schedule MIDI note:",error);
+    // Program 0 = Acoustic Grand Piano.
+    // Keep the existing Salamander piano for these notes.
+    if (track.program === 0 && !track.percussion) {
+      try {
+        const when =
+          audioNow + Math.max(0, (n.time - from) / speed);
+
+        synth.triggerAttackRelease(
+          Tone.Frequency(pitch, "midi").toNote(),
+          noteDuration,
+          when,
+          n.velocity
+        );
+      } catch (error) {
+        console.warn("Piano note failed:", error);
+      }
+
+      continue;
     }
+
+    // All other GM instruments use TimGM6mb SoundFont.
+    if (!gmReady || !gmSynth) continue;
+
+    const channel = track.gmChannel;
+    const velocity = Math.max(
+      1,
+      Math.min(127, Math.round(n.velocity * 127))
+    );
+
+    const delay = Math.max(
+      0,
+      ((n.time - from) / speed) * 1000
+    );
+
+    const startTimer = setTimeout(() => {
+      gmTimers.delete(startTimer);
+
+      if (!playing || !gmReady || !gmSynth) return;
+
+      try {
+        gmSynth.midiNoteOn(channel, pitch, velocity);
+      } catch (error) {
+        console.warn("GM note-on failed:", error);
+        return;
+      }
+
+      const stopTimer = setTimeout(() => {
+        gmTimers.delete(stopTimer);
+
+        if (!gmSynth || !gmReady) return;
+
+        try {
+          gmSynth.midiNoteOff(channel, pitch);
+        } catch (error) {
+          // Ignore a note that has already stopped.
+        }
+      }, noteDuration * 1000);
+
+      gmTimers.add(stopTimer);
+    }, delay);
+
+    gmTimers.add(startTimer);
   }
 }
 
@@ -735,6 +886,26 @@ async function play(){
   try{
     await ensureAudio();
 
+    const needsGM = tracks.some(
+      t => t.percussion || t.program !== 0
+    );
+    
+    if (needsGM) {
+      await ensureGM();
+    
+      // Assign the correct GM instrument to each melodic track.
+      for (const t of tracks) {
+        if (t.percussion) continue;
+    
+        gmSynth.midiProgramSelect(
+          t.gmChannel,
+          gmSoundFontId,
+          0,
+          t.program
+        );
+      }
+    }
+
     if(currentTime >= duration)currentTime = 0;
 
     scheduledNotes.clear();
@@ -766,6 +937,8 @@ function pausePlayback(){
     try{synth.releaseAll()}catch{}
   }
 
+  stopGMAudio();
+
   scheduledNotes.clear();
 
   $("playBtn").textContent = "▶";
@@ -788,6 +961,8 @@ $("speed").addEventListener("change",()=>{
     if(synth){
       try{synth.releaseAll()}catch{}
     }
+
+    stopGMAudio();
 
     scheduledNotes.clear();
 
