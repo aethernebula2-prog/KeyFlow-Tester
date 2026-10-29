@@ -255,6 +255,12 @@ async function loadFile(file){
       color: palette[i % palette.length]
     })).filter(t => t.notes.length);
     
+    tracks.forEach((t, index) => {
+      t.notes.forEach(n => {
+        n.track = index;
+      });
+    });
+    
     notes = tracks.flatMap(t => t.notes);
     if(!notes.length)throw new Error("This MIDI file contains no readable note events.");
     duration=Math.max(...notes.map(n=>n.time+n.duration),midiData.duration||0);
@@ -643,8 +649,14 @@ async function ensureAudio(){
         pianoLoaded = true;
         $("loadStatus").textContent = "Real piano ready";
         break;
-      }catch(sampleError){
-        if(candidate){try{candidate.dispose()}catch{}}
+      } catch(sampleError) {
+        console.warn("Piano sample loading failed:", baseUrl, sampleError);
+      
+        if (candidate) {
+          try {
+            candidate.dispose();
+          } catch {}
+        }
       }
     }
 
@@ -736,6 +748,7 @@ function scheduleNotes(from, to) {
   if (!synth || !audioReady) return;
 
   const audioNow = Tone.now();
+  const speed = Number($("speed").value || 1);
 
   for (const n of notes) {
     if (n.time < from || n.time > to) continue;
