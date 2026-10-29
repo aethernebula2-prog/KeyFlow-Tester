@@ -152,6 +152,7 @@ let synth = null, audioReady = false, seeking = false, hideTimer = 0;
 let audioStartTime = 0;
 let gmSynth = null;
 let gmAudioNode = null;
+let gmAudioContext = null;
 let gmSoundFontId = null;
 let gmReady = false;
 let gmLoading = null;
@@ -677,52 +678,72 @@ async function ensureAudio(){
   audioReady = true;
 }
 
+
 async function ensureGM() {
-  if (gmReady) return;
+  if (gmReady && gmSynth && gmAudioContext) {
+    if (gmAudioContext.state === "suspended") {
+      await gmAudioContext.resume();
+    }
+    return;
+  }
+
   if (gmLoading) return gmLoading;
 
   gmLoading = (async () => {
-    if (!window.JSSynth) {
-      throw new Error("SoundFont engine failed to load.");
-    }
-
-    await JSSynth.waitForReady();
-
     const audioContext = new AudioContext();
-    await audioContext.resume();
+    gmAudioContext = audioContext;
 
-    gmSynth = new JSSynth.Synthesizer();
-    gmSynth.init(audioContext.sampleRate);
+    try {
+      await audioContext.resume();
 
-    gmAudioNode = gmSynth.createAudioNode(audioContext, 8192);
-    gmAudioNode.connect(audioContext.destination);
-
-    const response = await fetch("./TimGM6mb.sf2");
-    if (!response.ok) {
-      throw new Error(
-        "Could not load TimGM6mb.sf2. Check that it is in the repository root."
+      // Load FluidSynth and its AudioWorklet processor.
+      await audioContext.audioWorklet.addModule(
+        "https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/externals/libfluidsynth-2.4.6.js"
       );
+
+      await audioContext.audioWorklet.addModule(
+        "https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/dist/js-synthesizer.worklet.js"
+      );
+
+      const response = await fetch("./TimGM6mb.sf2");
+      if (!response.ok) {
+        throw new Error("Could not load TimGM6mb.sf2");
+      }
+      const soundFontBuffer = await response.arrayBuffer();
+
+      const workletSynth =
+        new JSSynth.AudioWorkletNodeSynthesizer();
+
+      workletSynth.init(audioContext.sampleRate);
+
+      const audioNode = workletSynth.createAudioNode(audioContext);
+      audioNode.connect(audioContext.destination);
+
+      // The AudioWorklet node must exist before using synth methods.
+      await workletSynth.loadSFont(soundFontBuffer);
+
+      gmSynth = workletSynth;
+      gmAudioNode = audioNode;
+      gmReady = true;
+
+      console.log("GM AudioWorklet ready.");
+    } catch (error) {
+      gmReady = false;
+      gmSynth = null;
+      gmAudioNode = null;
+
+      try {
+        await audioContext.close();
+      } catch {}
+
+      gmAudioContext = null;
+      console.error("GM AudioWorklet initialization failed:", error);
+      throw error;
     }
-
-    const soundFontBuffer = await response.arrayBuffer();
-    gmSoundFontId = await gmSynth.loadSFont(soundFontBuffer);
-
-    if (gmSoundFontId == null) {
-      throw new Error("SoundFont loaded without a valid ID.");
-    }
-
-    gmReady = true;
-    toast("GM SoundFont ready.");
   })();
 
   try {
     await gmLoading;
-  } catch (error) {
-    gmSynth = null;
-    gmAudioNode = null;
-    gmSoundFontId = null;
-    gmReady = false;
-    throw error;
   } finally {
     gmLoading = null;
   }
