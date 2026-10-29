@@ -149,6 +149,7 @@ const stage = $("stage");
 let midiData = null, notes = [], tracks = [], duration = 0, currentTime = 0;
 let playing = false, startedAt = 0, startPosition = 0, raf = 0, lastScheduled = -1;
 let synth = null, audioReady = false, seeking = false, hideTimer = 0;
+let audioStartTime = 0;
 let gmSynth = null;
 let gmAudioNode = null;
 let gmSoundFontId = null;
@@ -744,18 +745,17 @@ function stopGMAudio() {
   }
 }
 
-function scheduleNotes(from, to) {
-  if (!synth || !audioReady) return;
 
-  const audioNow = Tone.now();
+function scheduleNotes(from, to) {
+  if (!synth || !audioReady || !playing) return;
+
   const speed = Number($("speed").value || 1);
+  const elapsed = (performance.now() - startedAt) / 1000;
 
   for (const n of notes) {
     if (n.time < from || n.time > to) continue;
 
-    const key =
-      `${n.track}:${n.midi}:${n.time}:${n.duration}`;
-
+    const key = `${n.track}:${n.midi}:${n.time}:${n.duration}`;
     if (scheduledNotes.has(key)) continue;
 
     const track = tracks[n.track];
@@ -768,24 +768,23 @@ function scheduleNotes(from, to) {
       Math.min(127, n.midi + transposeSemitones)
     );
 
-    const noteDuration = Math.max(
-      0.03,
-      n.duration / speed
-    );
+    const noteDuration = Math.max(0.03, n.duration / speed);
 
-    // Program 0 = Acoustic Grand Piano.
-    // Keep the existing Salamander piano for these notes.
+    // Fixed audio timeline: do not recalculate the start time
+    // from Tone.now() on every animation frame.
     if (track.program === 0 && !track.percussion) {
       try {
         const when =
-          audioNow + Math.max(0, (n.time - from) / speed);
+          audioStartTime + (n.time - startPosition) / speed;
 
-        synth.triggerAttackRelease(
-          Tone.Frequency(pitch, "midi").toNote(),
-          noteDuration,
-          when,
-          n.velocity
-        );
+        if (when >= Tone.immediate()) {
+          synth.triggerAttackRelease(
+            Tone.Frequency(pitch, "midi").toNote(),
+            noteDuration,
+            when,
+            n.velocity
+          );
+        }
       } catch (error) {
         console.warn("Piano note failed:", error);
       }
@@ -793,7 +792,6 @@ function scheduleNotes(from, to) {
       continue;
     }
 
-    // All other GM instruments use TimGM6mb SoundFont.
     if (!gmReady || !gmSynth) continue;
 
     const channel = track.gmChannel;
@@ -802,9 +800,10 @@ function scheduleNotes(from, to) {
       Math.min(127, Math.round(n.velocity * 127))
     );
 
+    // Calculate delay against the fixed playback clock.
     const delay = Math.max(
       0,
-      ((n.time - from) / speed) * 1000
+      ((n.time - startPosition) / speed - elapsed) * 1000
     );
 
     const startTimer = setTimeout(() => {
@@ -826,9 +825,7 @@ function scheduleNotes(from, to) {
 
         try {
           gmSynth.midiNoteOff(channel, pitch);
-        } catch (error) {
-          // Ignore a note that has already stopped.
-        }
+        } catch {}
       }, noteDuration * 1000);
 
       gmTimers.add(stopTimer);
@@ -867,7 +864,8 @@ function setTranspose(value) {
 
     scheduledNotes.clear();
     startPosition = currentTime;
-    startedAt = performance.now();
+    audioStartTime = Tone.immediate() + 0.15;
+    startedAt = performance.now() + 150;
 
     scheduleNotes(
       currentTime,
@@ -922,9 +920,10 @@ async function play(){
     if(currentTime >= duration)currentTime = 0;
 
     scheduledNotes.clear();
-    playing = true;
     startPosition = currentTime;
-    startedAt = performance.now();
+    audioStartTime = Tone.immediate() + 0.15;
+    startedAt = performance.now() + 150;
+    playing = true;
 
     scheduleNotes(
       currentTime,
@@ -969,7 +968,8 @@ $("speed").addEventListener("change",()=>{
   if(playing){
     currentTime = playbackPosition();
     startPosition = currentTime;
-    startedAt = performance.now();
+    audioStartTime = Tone.immediate() + 0.15;
+    startedAt = performance.now() + 150;
 
     if(synth){
       try{synth.releaseAll()}catch{}
